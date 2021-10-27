@@ -71,7 +71,8 @@ public class MavenUrlProcessor implements InstallerProcessor {
             Path oldJarRoot = oldFs.getPath("/");
             Path newJarRoot = newFs.getPath("/");
 
-            Files.walkFileTree(oldJarRoot, new CopyingFileVisitor(oldJarRoot, newJarRoot, e -> true));
+            // Only copy files that don't already exist
+            Files.walkFileTree(oldJarRoot, new CopyingFileVisitor(oldJarRoot, newJarRoot, e -> e.toString().isEmpty() || !Files.exists(newJarRoot.resolve(e.toString()))));
 
             boolean changed = rewriteInstallProfile(ctx.notation, oldJarRoot, newJarRoot);
             changed |= validateSignatures(newJarRoot);

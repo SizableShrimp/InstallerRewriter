@@ -52,6 +52,8 @@ import java.nio.file.*;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.util.*;
+import java.util.jar.Attributes;
+import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 
 import static java.util.Arrays.asList;
@@ -292,13 +294,14 @@ public class InstallerRewriter {
         folderVersions.sort(Comparator.comparing(ComparableVersion::new));
         LOGGER.info("Processing versions..");
         for (int x = 0; x < folderVersions.size(); x++) {
-            processVersion(signProps, forgeNotation.withVersion(folderVersions.get(x)), repoPath, backupPath, outputPath, latestInstallerPath, urlFixesOnly, x, folderVersions.size());
+            processVersion(signProps, forgeNotation.withVersion(folderVersions.get(x)), repoPath, backupPath, outputPath, latestInstaller, latestInstallerPath, urlFixesOnly, x, folderVersions.size());
         }
 
         return 0;
     }
 
-    private static void processVersion(SignProps signProps, MavenNotation notation, Path repo, @Nullable Path backupPath, @Nullable Path outputPath, Path latestInstaller, boolean urlFixesOnly, int idx, int total) throws IOException {
+    private static void processVersion(SignProps signProps, MavenNotation notation, Path repo, @Nullable Path backupPath, @Nullable Path outputPath, MavenNotation latestInstaller,
+            Path latestInstallerPath, boolean urlFixesOnly, int idx, int total) throws IOException {
         if (notation.version.startsWith("1.5.2-")) return; //TODO Temporary
 
         boolean inPlace = backupPath != null;
@@ -342,7 +345,22 @@ public class InstallerRewriter {
                 }
                 modifiedFiles.add(pair);
                 if (notation.equals(installer)) {
-                    Files.copy(latestInstaller, makeParents(pair.getRight()), StandardCopyOption.REPLACE_EXISTING);
+                    try (FileSystem fs = IOUtils.getJarFileSystem(pair.getLeft(), false)) {
+                        Path manifestPath = fs.getPath("/").resolve("META-INF/MANIFEST.MF");
+
+                        Manifest manifest = null;
+                        if (Files.exists(manifestPath)) {
+                            try (InputStream is = Files.newInputStream(manifestPath)) {
+                                manifest = new Manifest(is);
+                            }
+                        }
+
+                        String implVersion = manifest == null ? null : manifest.getAttributes("net/minecraftforge/installer/").getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+                        String majorImplVersion = implVersion == null ? null : implVersion.substring(0, implVersion.indexOf('.'));
+                        String majorLatestVersion = latestInstaller.version.substring(0, latestInstaller.version.indexOf('.'));
+                        if (majorImplVersion != null && majorImplVersion.equals(majorLatestVersion))
+                            Files.copy(latestInstallerPath, makeParents(pair.getRight()), StandardCopyOption.REPLACE_EXISTING);
+                    }
                 }
                 return pair;
             }
@@ -383,7 +401,9 @@ public class InstallerRewriter {
                 if (inPlace) {
                     moveWithAssociated(original, modified); // Move the old file back
                 } else {
-                    Files.delete(modified.getParent()); // Delete parent directory if empty
+                    // Delete parent directory if empty
+                    if (!Files.list(modified.getParent()).findAny().isPresent())
+                        Files.delete(modified.getParent());
                 }
             } else {
                 //Re-sign all modified files.
@@ -424,7 +444,8 @@ public class InstallerRewriter {
             }
             ret = installerNotation.withVersion(filtered.get(0));
         } else {
-            if (!versions.contains(targetVersion)) throw new RuntimeException("Exact installer version '" + targetVersion + "' does not exist.");
+            if (!versions.contains(targetVersion))
+                throw new RuntimeException("Exact installer version '" + targetVersion + "' does not exist.");
 
             ret = installerNotation;
         }
@@ -478,7 +499,8 @@ public class InstallerRewriter {
         if (forceDownload && !recentFiles.contains(url.toString())) {
             Files.deleteIfExists(file);
         }
-        if (Files.exists(file)) return; //Assume the file is already downloaded.
+        if (Files.exists(file))
+            return; //Assume the file is already downloaded.
         recentFiles.add(url.toString());
 
         Request request = new Request.Builder()

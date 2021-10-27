@@ -71,6 +71,7 @@ public class Utils {
     public static final Gson GSON = new GsonBuilder()
             .registerTypeAdapter(MavenNotation.class, new MavenNotationAdapter())
             .setPrettyPrinting()
+            .disableHtmlEscaping()
             .create();
 
     public static int getAsInt(JsonObject obj, String key) {
