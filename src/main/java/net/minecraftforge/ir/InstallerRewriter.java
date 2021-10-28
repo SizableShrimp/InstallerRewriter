@@ -161,6 +161,7 @@ public class InstallerRewriter {
 
 
         OptionSpec<Void> urlFixesOpt =  parser.acceptsAll(asList("u", "url-only"), "Will only run the maven URL updating processor.");
+        OptionSpec<Void> updateInstallersOpt =  parser.acceptsAll(asList("ui", "update-installers"), "Whether to update the installer to the latest version if the major version matches.");
 
         //Signing
         OptionSpec<Void> signOpt = parser.acceptsAll(asList("sign"), "If jars should be signed or not.");
@@ -236,6 +237,7 @@ public class InstallerRewriter {
         }
 
         boolean urlFixesOnly = optSet.has(urlFixesOpt);
+        boolean updateInstallers = optSet.has(updateInstallersOpt);
 
         LOGGER.info("Resolving latest Forge installer..");
         MavenNotation installerNotation = MavenNotation.parse(optSet.valueOf(installerCoordsOpt));
@@ -294,14 +296,14 @@ public class InstallerRewriter {
         folderVersions.sort(Comparator.comparing(ComparableVersion::new));
         LOGGER.info("Processing versions..");
         for (int x = 0; x < folderVersions.size(); x++) {
-            processVersion(signProps, forgeNotation.withVersion(folderVersions.get(x)), repoPath, backupPath, outputPath, latestInstaller, latestInstallerPath, urlFixesOnly, x, folderVersions.size());
+            processVersion(signProps, forgeNotation.withVersion(folderVersions.get(x)), repoPath, backupPath, outputPath, latestInstaller, latestInstallerPath, updateInstallers, urlFixesOnly, x, folderVersions.size());
         }
 
         return 0;
     }
 
     private static void processVersion(SignProps signProps, MavenNotation notation, Path repo, @Nullable Path backupPath, @Nullable Path outputPath, MavenNotation latestInstaller,
-            Path latestInstallerPath, boolean urlFixesOnly, int idx, int total) throws IOException {
+            Path latestInstallerPath, boolean updateInstallers, boolean urlFixesOnly, int idx, int total) throws IOException {
         if (notation.version.startsWith("1.5.2-")) return; //TODO Temporary
 
         boolean inPlace = backupPath != null;
@@ -344,7 +346,7 @@ public class InstallerRewriter {
                     pair = Pair.of(repoFile, outFile);
                 }
                 modifiedFiles.add(pair);
-                if (notation.equals(installer)) {
+                if (notation.equals(installer) && updateInstallers) {
                     try (FileSystem fs = IOUtils.getJarFileSystem(pair.getLeft(), false)) {
                         Path manifestPath = fs.getPath("/").resolve("META-INF/MANIFEST.MF");
 
