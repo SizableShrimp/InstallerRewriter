@@ -359,9 +359,13 @@ public class InstallerRewriter {
 
                         String implVersion = manifest == null ? null : manifest.getAttributes("net/minecraftforge/installer/").getValue(Attributes.Name.IMPLEMENTATION_VERSION);
                         String majorImplVersion = implVersion == null ? null : implVersion.substring(0, implVersion.indexOf('.'));
-                        String majorLatestVersion = latestInstaller.version.substring(0, latestInstaller.version.indexOf('.'));
-                        if (majorImplVersion != null && majorImplVersion.equals(majorLatestVersion))
-                            Files.copy(latestInstallerPath, makeParents(pair.getRight()), StandardCopyOption.REPLACE_EXISTING);
+
+                        if (majorImplVersion != null) {
+                            MavenNotation latestMajorInstaller = resolveLatestInstaller(latestInstaller.withVersion(majorImplVersion + ".+"));
+                            Path latestMajorInstallerPath = downloadMavenFile(latestMajorInstaller);
+                            if (Files.exists(latestMajorInstallerPath))
+                                Files.copy(latestMajorInstallerPath, makeParents(pair.getRight()), StandardCopyOption.REPLACE_EXISTING);
+                        }
                     }
                 }
                 return pair;
@@ -481,6 +485,12 @@ public class InstallerRewriter {
                     props.keyAlias
             ));
         });
+    }
+
+    public static Path downloadMavenFile(MavenNotation mavenNotation) throws IOException {
+        Path mavenDownloadPath = CACHE_DIR.resolve(mavenNotation.toPath());
+        downloadFile(mavenNotation.toURL(FORGE_MAVEN), mavenDownloadPath);
+        return mavenDownloadPath;
     }
 
     public static void downloadFile(URL url, Path file) throws IOException {
