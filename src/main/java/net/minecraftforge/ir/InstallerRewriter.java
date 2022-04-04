@@ -126,14 +126,19 @@ public class InstallerRewriter {
                 .withRequiredArg()
                 .withValuesConvertedBy(new PathConverter());
 
-        OptionSpec<Path> backupPathOpt = parser.acceptsAll(asList("b", "backup"), "The directory to place the old installers into.")
-                .requiredIf(inPlaceOpt)
-                .withRequiredArg()
-                .withValuesConvertedBy(new PathConverter());
+        // OptionSpec<Path> backupPathOpt = parser.acceptsAll(asList("b", "backup"), "The directory to place the old installers into.")
+        //         .requiredIf(inPlaceOpt)
+        //         .withRequiredArg()
+        //         .withValuesConvertedBy(new PathConverter());
+        //
+        // OptionSpec<Path> outputPathOpt = parser.acceptsAll(asList("o", "output"), "The directory to place installers when in-place mode is turned off.")
+        //         .requiredUnless(inPlaceOpt)
+        //         .withRequiredArg()
+        //         .withValuesConvertedBy(new PathConverter());
 
-        OptionSpec<Path> outputPathOpt = parser.acceptsAll(asList("o", "output"), "The directory to place installers when in-place mode is turned off.")
-                .requiredUnless(inPlaceOpt)
+        OptionSpec<Path> artifactOutputOpt = parser.accepts("artifact-output", "The filename to write the list of installer used artifacts to")
                 .withRequiredArg()
+                .required()
                 .withValuesConvertedBy(new PathConverter());
 
         //Signing
@@ -178,16 +183,16 @@ public class InstallerRewriter {
             return -1;
         }
 
-        if (inPlace && !optSet.has(backupPathOpt)) {
-            LOGGER.error("Expected --backup argument.");
-            parser.printHelpOn(System.err);
-            return -1;
-        }
-
-        if (!inPlace && !optSet.has(outputPathOpt)) {
-            LOGGER.error("Expected --output argument.");
-            return -1;
-        }
+        // if (inPlace && !optSet.has(backupPathOpt)) {
+        //     LOGGER.error("Expected --backup argument.");
+        //     parser.printHelpOn(System.err);
+        //     return -1;
+        // }
+        //
+        // if (!inPlace && !optSet.has(outputPathOpt)) {
+        //     LOGGER.error("Expected --output argument.");
+        //     return -1;
+        // }
 
         Path repoPath = optSet.valueOf(repoPathOpt);
         if (Files.notExists(repoPath)) {
@@ -195,15 +200,16 @@ public class InstallerRewriter {
             return -1;
         }
 
-        Path backupPath;
-        Path outputPath;
-        if (inPlace) {
-            backupPath = optSet.valueOf(backupPathOpt);
-            outputPath = null;
-        } else {
-            backupPath = null;
-            outputPath = optSet.valueOf(outputPathOpt);
-        }
+        // Path backupPath;
+        // Path outputPath;
+        // if (inPlace) {
+        //     backupPath = optSet.valueOf(backupPathOpt);
+        //     outputPath = null;
+        // } else {
+        //     backupPath = null;
+        //     outputPath = optSet.valueOf(outputPathOpt);
+        // }
+        Path artifactOutput = optSet.valueOf(artifactOutputOpt);
 
         SignProps signProps = null;
         if (optSet.has(signOpt)) {
@@ -279,10 +285,16 @@ public class InstallerRewriter {
         LOGGER.info("Processing versions..");
         for (int x = 0; x < folderVersions.size(); x++) {
             processVersion(signProps, forgeNotation.withVersion(folderVersions.get(x)),
-                repoPath, backupPath, outputPath,
-                instUpdater, mavenUrlChange, convert1To2,
+                repoPath, null, null,
+                instUpdater, true, convert1To2,
                 x, folderVersions.size());
         }
+
+        Path artifactOutputParent = artifactOutput.getParent();
+        if (artifactOutputParent != null)
+            Files.createDirectories(artifactOutputParent);
+
+        Files.write(artifactOutput, MavenUrlProcessor.INSTALLER_ARTIFACTS.stream().map(Path::toString).collect(Collectors.toList()), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
         return 0;
     }
@@ -292,8 +304,6 @@ public class InstallerRewriter {
         InstallerUpdater instUpdater, boolean mavenUrlFix, boolean convert1To2,
         int idx, int total
     ) throws IOException {
-        boolean inPlace = backupPath != null;
-
         MavenNotation installer = notation.withClassifier("installer");
         Path repoInstallerPath = installer.toPath(repo);
 
@@ -314,21 +324,21 @@ public class InstallerRewriter {
         }
         LOGGER.info("[{}/{}] Found probable format: {}", idx, total, format);
 
-        if (inPlace) {
-            //Move windows installers if found
-            MavenNotation winNotation = installer.withClassifier("installer-win").withExtension("exe");
-            Path winFile = winNotation.toPath(repo);
-            if (Files.exists(winFile)) {
-                moveWithAssociated(winFile, winNotation.toPath(backupPath));
-            }
-
-            //Move javadoc zips.. Its 10 GB of useless space.
-            MavenNotation docNotation = installer.withClassifier("javadoc").withExtension("zip");
-            Path docFile = docNotation.toPath(repo);
-            if (Files.exists(docFile)) {
-                moveWithAssociated(docFile, docNotation.toPath(backupPath));
-            }
-        }
+        // if (inPlace) {
+        //     //Move windows installers if found
+        //     MavenNotation winNotation = installer.withClassifier("installer-win").withExtension("exe");
+        //     Path winFile = winNotation.toPath(repo);
+        //     if (Files.exists(winFile)) {
+        //         moveWithAssociated(winFile, winNotation.toPath(backupPath));
+        //     }
+        //
+        //     //Move javadoc zips.. Its 10 GB of useless space.
+        //     MavenNotation docNotation = installer.withClassifier("javadoc").withExtension("zip");
+        //     Path docFile = docNotation.toPath(repo);
+        //     if (Files.exists(docFile)) {
+        //         moveWithAssociated(docFile, docNotation.toPath(backupPath));
+        //     }
+        // }
 
         LOGGER.info("[{}/{}] Processing {}..", idx, total, notation);
 
@@ -341,36 +351,36 @@ public class InstallerRewriter {
         if (instUpdater != null)
             format = instUpdater.post(installer, contents, format);
 
-        if (contents.changed()) {
-            LOGGER.info("[{}/{}] Contents Changed, saving file", idx, total);
-            FileTime timestamp = Files.getLastModifiedTime(repoInstallerPath);
-            Path output = null;
-            if (inPlace) {
-                output = installer.toPath(repo);
-                Path backupFile = installer.toPath(backupPath);
-                moveWithAssociated(repoInstallerPath, backupFile);
-            } else {
-                output = installer.toPath(outputPath);
-            }
-            contents.save(output.toFile());
-            Files.setLastModifiedTime(output, timestamp);
-
-            if (signProps != null) {
-                signJar(signProps, output);
-            }
-
-            MultiHasher hasher = new MultiHasher(HASH_FUNCS);
-            hasher.load(output);
-            MultiHasher.HashResult result = hasher.finish();
-            for (Map.Entry<MultiHasher.HashFunc, HashCode> entry : result.entrySet()) {
-                Path hashFile = output.resolveSibling(output.getFileName() + "." + entry.getKey().name.toLowerCase());
-                try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(hashFile))) {
-                    out.print(entry.getValue().toString());
-                    out.flush();
-                }
-                Files.setLastModifiedTime(hashFile, timestamp);
-            }
-        }
+        // if (contents.changed()) {
+        //     LOGGER.info("[{}/{}] Contents Changed, saving file", idx, total);
+        //     FileTime timestamp = Files.getLastModifiedTime(repoInstallerPath);
+        //     Path output = null;
+        //     if (inPlace) {
+        //         output = installer.toPath(repo);
+        //         Path backupFile = installer.toPath(backupPath);
+        //         moveWithAssociated(repoInstallerPath, backupFile);
+        //     } else {
+        //         output = installer.toPath(outputPath);
+        //     }
+        //     contents.save(output.toFile());
+        //     Files.setLastModifiedTime(output, timestamp);
+        //
+        //     if (signProps != null) {
+        //         signJar(signProps, output);
+        //     }
+        //
+        //     MultiHasher hasher = new MultiHasher(HASH_FUNCS);
+        //     hasher.load(output);
+        //     MultiHasher.HashResult result = hasher.finish();
+        //     for (Map.Entry<MultiHasher.HashFunc, HashCode> entry : result.entrySet()) {
+        //         Path hashFile = output.resolveSibling(output.getFileName() + "." + entry.getKey().name.toLowerCase());
+        //         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(hashFile))) {
+        //             out.print(entry.getValue().toString());
+        //             out.flush();
+        //         }
+        //         Files.setLastModifiedTime(hashFile, timestamp);
+        //     }
+        // }
         LOGGER.info("[{}/{}] Processing finished!", idx, total);
     }
 

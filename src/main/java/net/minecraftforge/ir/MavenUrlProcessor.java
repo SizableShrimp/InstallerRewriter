@@ -27,7 +27,14 @@ import static net.minecraftforge.ir.Utils.getAsString;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -40,6 +47,8 @@ public class MavenUrlProcessor implements InstallerProcessor {
     private static final Logger LOGGER = LogManager.getLogger();
     private static final String MIRROR_BRAND = "https://files.minecraftforge.net/mirror-brand.list";
     private static final String INSTALL_PROFILE = "install_profile.json";
+
+    public static final Set<Path> INSTALLER_ARTIFACTS = new HashSet<>();
 
     @Override
     public InstallerFormat process(MavenNotation notation, JarContents content, InstallerFormat format) throws IOException {
@@ -63,11 +72,11 @@ public class MavenUrlProcessor implements InstallerProcessor {
                 break;
         }
 
-        if (changed) {
-            byte[] bytes = Utils.GSON.toJson(install).getBytes(StandardCharsets.UTF_8);
-            LOGGER.debug("Updating {} for {}", INSTALL_PROFILE, notation);
-            content.write(INSTALL_PROFILE, bytes);
-        }
+        // if (changed) {
+        //     byte[] bytes = Utils.GSON.toJson(install).getBytes(StandardCharsets.UTF_8);
+        //     LOGGER.debug("Updating {} for {}", INSTALL_PROFILE, notation);
+        //     content.write(INSTALL_PROFILE, bytes);
+        // }
 
         return format;
     }
@@ -161,11 +170,25 @@ public class MavenUrlProcessor implements InstallerProcessor {
             changed = true;
         }
 
+        boolean addedArtifact = false;
         changed |= rewriteUrl(notation, lib);
         if (lib.has("downloads")) {
             JsonObject downloads = lib.getAsJsonObject("downloads");
             if (downloads.has("artifact")) {
-                changed |= rewriteUrl(notation, downloads.getAsJsonObject("artifact"));
+                JsonObject artifact = downloads.getAsJsonObject("artifact");
+                if (artifact.has("url")) {
+                    String url = getAsString(artifact, "url");
+                    if (url != null && !url.isEmpty()) {
+                        try {
+                            String path = JarContents.sanitize(new URL(url).getPath());
+                            INSTALLER_ARTIFACTS.add(Paths.get(path));
+                            addedArtifact = true;
+                        } catch (MalformedURLException e) {
+                            LOGGER.error("Error when parsing url {}", url, e);
+                        }
+                    }
+                }
+                changed |= rewriteUrl(notation, artifact);
             }
             if (downloads.has("classifiers")) {
                 JsonObject classifiers = lib.getAsJsonObject("classifiers");
@@ -174,6 +197,16 @@ public class MavenUrlProcessor implements InstallerProcessor {
                 }
             }
         }
+
+        if (!addedArtifact) {
+            try {
+                MavenNotation artifactNotation = MavenNotation.parse(name);
+                INSTALLER_ARTIFACTS.add(Paths.get(artifactNotation.toPath()));
+            } catch (RuntimeException e) {
+                LOGGER.error("Error when parsing maven notation for name {}", name, e);
+            }
+        }
+
         return changed;
     }
 
